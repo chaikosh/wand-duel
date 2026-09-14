@@ -183,12 +183,14 @@ function resample(points,n){
   while(out.length<n) out.push(pts[pts.length-1]);
   return out.slice(0,n);
 }
-function normalize(points){
+function normalize(points,perAxis){
   let p=resample(points,N_PTS);
   let minx=1e9,miny=1e9,maxx=-1e9,maxy=-1e9;
   for(const q of p){minx=Math.min(minx,q.x);maxx=Math.max(maxx,q.x);miny=Math.min(miny,q.y);maxy=Math.max(maxy,q.y);}
-  const s=SIZE/Math.max(maxx-minx,maxy-miny,1e-6);
-  p=p.map(q=>({x:q.x*s,y:q.y*s}));
+  const w=Math.max(maxx-minx,1e-6),h=Math.max(maxy-miny,1e-6),s=SIZE/Math.max(w,h);
+  // compact shapes stretch per axis so a squashed circle still reads as a circle; wide ones keep aspect so a dome never turns into a square
+  const sx=perAxis?Math.min(SIZE/w,2*s):s, sy=perAxis?Math.min(SIZE/h,2*s):s;
+  p=p.map(q=>({x:q.x*sx,y:q.y*sy}));
   let cx=0,cy=0; for(const q of p){cx+=q.x;cy+=q.y;} cx/=p.length;cy/=p.length;
   return p.map(q=>({x:q.x-cx,y:q.y-cy}));
 }
@@ -200,16 +202,16 @@ function distBestAngle(p,t){
   for(let a=-12;a<=12;a+=4){best=Math.min(best,pathDist(rotate(p,a*Math.PI/180),t));}
   return best;
 }
-function recognize(points,templates){
-  if(points.length<6||pathLength(points)<40) return null;
-  const p=normalize(points); let best=null;
-  for(const id in templates){
-    const d=distBestAngle(p,templates[id]);
-    const score=Math.max(0,1-d/(0.5*Math.SQRT2*SIZE));
-    if(!best||score>best.score) best={id,score};
-  }
-  return best;
+const COMPACT={petrificus:1,finite:1,accio:1,confringo:1,impedimenta:1};
+function scores(points,templates=TEMPLATES){
+  if(points.length<6||pathLength(points)<40) return [];
+  const pU=normalize(points,false),pN=normalize(points,true);
+  return Object.keys(templates).map(id=>{
+    const d=distBestAngle(COMPACT[id]?pN:pU,templates[id]);
+    return {id,score:Math.max(0,1-d/(0.5*Math.SQRT2*SIZE))};
+  }).sort((a,b)=>b.score-a.score);
 }
+function recognize(points,templates=TEMPLATES){const s=scores(points,templates);return s.length?s[0]:null;}
 // gesture shapes in a unit box (y down)
 function seg(out,a,b,n){for(let i=0;i<=n;i++){const t=i/n;out.push({x:a.x+t*(b.x-a.x),y:a.y+t*(b.y-a.y)});}return out;}
 function arc(out,cx,cy,r,a0,a1,n){for(let i=0;i<=n;i++){const a=a0+(a1-a0)*i/n;out.push({x:cx+r*Math.cos(a),y:cy+r*Math.sin(a)});}return out;}
@@ -226,7 +228,7 @@ const SHAPES={
   serpensortia:()=>{let o=[];for(let i=0;i<=60;i++){const t=i/60;o.push({x:.5+.3*Math.sin(2*Math.PI*t),y:.05+.9*t});}return o;},
   impedimenta:()=>{let o=[];const P=[];for(let k=0;k<5;k++){const a=-Math.PI/2+k*4*Math.PI/5;P.push({x:.5+.45*Math.cos(a),y:.52+.45*Math.sin(a)});}for(let k=0;k<5;k++)seg(o,P[k],P[(k+1)%5],16);return o;},
 };
-const TEMPLATES={}; for(const k in SHAPES) TEMPLATES[k]=normalize(SHAPES[k]());
+const TEMPLATES={}; for(const k in SHAPES) TEMPLATES[k]=normalize(SHAPES[k](),!!COMPACT[k]);
 // ---REC END
 
 const SPELLS={
@@ -362,7 +364,7 @@ function makePad(wrap){
   const hush=()=>{if(sh){sh.end();sh=null;}};
   function fit(){const r=wrap.getBoundingClientRect();const d=window.devicePixelRatio||1;c.width=r.width*d;c.height=r.height*d;ctx.setTransform(d,0,0,d,0,0);}
   new ResizeObserver(fit).observe(wrap); fit();
-  function pos(e){const r=c.getBoundingClientRect();return {x:e.clientX-r.left,y:e.clientY-r.top};}
+  function pos(e){const r=c.getBoundingClientRect();return {x:e.clientX-r.left,y:e.clientY-r.top,t:performance.now()};}
   function render(){
     ctx.clearRect(0,0,c.width,c.height);
     if(pts.length<2||(blind&&!fx)) return;
@@ -379,8 +381,11 @@ function makePad(wrap){
   return {
     await(){locked=false;wrap.classList.remove('locked');return new Promise(res=>{resolver=res;});},
     setBlind(b){blind=b;},
+    size(){return c.getBoundingClientRect().width;},
     cancel(){locked=true;resolver=null;drawing=false;hush();},
-    flash(color,ok){fx={color:ok?color:'#777',alpha:1};let t=0;const id=setInterval(()=>{t+=1;fx.alpha=Math.max(0,1-t/30);if(ok&&t<6)fx.alpha=1;render();if(t>=30){clearInterval(id);pts=[];fx=null;render();}},33);},
+    flash(color,ok){const f={color:ok?color:'#777',alpha:1};fx=f;let t=0;const id=setInterval(()=>{
+      if(fx!==f){clearInterval(id);return;} // a new stroke or clear() took over the pad
+      t+=1;f.alpha=Math.max(0,1-t/30);if(ok&&t<6)f.alpha=1;render();if(t>=30){clearInterval(id);pts=[];fx=null;render();}},33);},
     clear(){pts=[];fx=null;render();}
   };
 }
@@ -394,12 +399,14 @@ async function startPractice(id){
   prActive=true;
   while(prActive && $('#practice').classList.contains('on')){
     const pts=await prPad.await(); if(!$('#practice').classList.contains('on')) break;
-    const r=recognize(pts,TEMPLATES);
-    if(!r){$('#pr-msg').innerHTML='Слишком короткий взмах';prPad.flash('#777',false);continue;}
-    const t=tierOf(r.score); const hit=r.id===id;
+    const sc=scores(pts);
+    if(!sc.length){$('#pr-msg').innerHTML='Слишком короткий взмах';prPad.flash('#777',false);continue;}
+    const r=sc[0], tempo=tempoOf(pts,prPad.size()), score=mastery(r.score,tempo);
+    const t=tierOf(score); const hit=r.id===id; const pc=x=>Math.round(x*100)+'%';
     prPad.flash(SPELLS[r.id].color,t>0);
-    $('#pr-msg').innerHTML= t===0 ? `Осечка<small>ближе всего к «${SPELLS[r.id].name}», точность ${Math.round(r.score*100)}%</small>`
-      : `${SPELLS[r.id].name} — ${TIERS[t]}<small>точность ${Math.round(r.score*100)}%${hit?'':' · это не то заклинание, что вы тренируете'}</small>`;
+    const detail=`форма ${pc(r.score)} · темп ${TEMPO_LBL(tempo)} → ${pc(score)}`+(sc[1]?` · похоже и на «${SPELLS[sc[1].id].name}» ${pc(sc[1].score)}`:'');
+    $('#pr-msg').innerHTML= t===0 ? `Осечка<small>ближе всего к «${SPELLS[r.id].name}»: ${detail}</small>`
+      : `${SPELLS[r.id].name} — ${TIERS[t]}<small>${detail}${hit?'':' · это не то заклинание, что вы тренируете'}</small>`;
   }
 }
 
@@ -422,6 +429,11 @@ function overlay(title,text,btn){return new Promise(res=>{$('#ov-title').textCon
   $('#overlay').classList.add('on');$('#ov-btn').onclick=()=>{$('#overlay').classList.remove('on');res();};});}
 function gauss(m,sd){let u=0,v=0;while(!u)u=Math.random();while(!v)v=Math.random();return m+sd*Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);}
 const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
+// stroke tempo in canvas-widths per second: below SLOW counts as hesitant, above FAST as brisk
+const TEMPO_SLOW=1.0, TEMPO_FAST=3.0;
+function tempoOf(pts,W){const dur=(pts[pts.length-1].t-pts[0].t)/1000;if(!(dur>0)||!W)return .5;return clamp((pathLength(pts)/dur/W-TEMPO_SLOW)/(TEMPO_FAST-TEMPO_SLOW),0,1);}
+function mastery(shape,tempo){return Math.min(1,shape*(0.9+0.12*tempo));}
+const TEMPO_LBL=t=>t<.34?'медленно':t<.67?'ровно':'быстро';
 
 async function humanCast(p,timeoutMs){
   // returns {id,score,tier} or null (misfire/timeout)
@@ -441,13 +453,14 @@ async function humanCast(p,timeoutMs){
     if(result===null){pad.cancel();pad.setBlind(false);SFX.misfire();return {timeout:true};}
   } else result=await gesture;
   pad.setBlind(false);
-  const r=recognize(result,TEMPLATES);
+  const r=recognize(result);
   if(!r){pad.flash('#777',false);SFX.misfire();return {id:null,score:0,tier:0};}
-  let score=r.score; if(p.laugh)score-=0.08; if(p.stunned)score-=0.15;
+  const tempo=tempoOf(result,pad.size());
+  let score=mastery(r.score,tempo); if(p.laugh)score-=0.08; if(p.stunned)score-=0.15;
   const tier=tierOf(score);
   pad.flash(SPELLS[r.id].color,tier>0);
   castSfx({id:r.id,tier},SPELLS[r.id].cost<=p.conc&&(!p.disarmed||r.id==='accio'));
-  return {id:r.id,score,tier};
+  return {id:r.id,score,tier,tempo};
 }
 function aiCast(p,id){let s=clamp(gauss(DIFF[diff].mean,DIFF[diff].sd),0,1);if(p.laugh)s-=0.08;if(p.stunned)s-=0.15;if(p.blind)s-=0.10;return {id,score:s,tier:tierOf(s)};}
 function aiPickAttack(p){
@@ -457,12 +470,14 @@ function aiPickAttack(p){
   if(!p.guard)add('protego',1);if(p.laugh||p.stunned||p.blind||p.venom)add('finite',3);
   return w[Math.floor(Math.random()*w.length)];
 }
-function aiPickDefense(att,slow){
-  const correct= att==='expelliarmus'?'expelliarmus':((att==='petrificus'||att==='serpensortia')&&Math.random()<.4?'finite':'protego');
-  if(Math.random()<DIFF[diff].pDef-(slow?.25:0)) return correct;
-  const pool=['protego','stupefy','finite','expelliarmus','rictusempra'];return pool[Math.floor(Math.random()*pool.length)];
+function aiPickDefense(att,slow,conc){
+  let correct= att==='expelliarmus'?'expelliarmus':((att==='petrificus'||att==='serpensortia')&&Math.random()<.4?'finite':'protego');
+  if(SPELLS[correct].cost>conc) correct='protego';
+  if(SPELLS[correct].cost<=conc&&Math.random()<DIFF[diff].pDef-(slow?.25:0)) return correct;
+  const pool=['protego','stupefy','finite','expelliarmus','rictusempra'].filter(id=>SPELLS[id].cost<=conc);
+  return pool.length?pool[Math.floor(Math.random()*pool.length)]:null;
 }
-function castLabel(p,c){return `${p.name}: ${SPELLS[c.id].name} — ${TIERS[c.tier].toLowerCase()} (${Math.round(c.score*100)}%)`;}
+function castLabel(p,c){return `${p.name}: ${SPELLS[c.id].name} — ${TIERS[c.tier].toLowerCase()} (${Math.round(c.score*100)}%${c.tempo!=null?', '+TEMPO_LBL(c.tempo):''})`;}
 
 async function playTurn(A,D){
   const aName=A.name;
@@ -496,7 +511,16 @@ async function playTurn(A,D){
   let def=null;
   if(D.disarmed){log(`${D.name} без палочки не может защититься.`);}
   else if(D.guard){def={id:'protego',score:0,tier:D.guard};D.guard=0;log(`Щит ${D.name} принимает удар.`);}
-  else if(D.ai){msg(`${D.name} защищается…`);await sleep(600);def=aiCast(D,aiPickDefense(cast.id,D.slow));D.slow=false;castSfx(def,true);D.laugh=false;D.stunned=false;D.blind=false;if(def.tier>0)log(castLabel(D,def));else log(`${D.name}: осечка в защите.`);}
+  else if(D.ai){
+    msg(`${D.name} защищается…`);await sleep(600);
+    const pick=aiPickDefense(cast.id,D.slow,D.conc); D.slow=false;
+    if(!pick){log(`${D.name}: нет концентрации на защиту.`);}
+    else{
+      def=aiCast(D,pick);castSfx(def,true);D.laugh=false;D.stunned=false;D.blind=false;
+      if(def.tier===0){log(`${D.name}: осечка в защите.`);def=null;}
+      else{D.conc-=SPELLS[def.id].cost;log(castLabel(D,def));}
+    }
+  }
   else{
     const tw=D.slow?2500:4000, secs=(tw/1000).toString().replace('.',',')+' секунды'; D.slow=false;
     if(game.twoP) await overlay(`${D.name}, защищайтесь!`,`Летит ${sp.name}. После нажатия у вас ${secs}.`,'Защищаюсь');

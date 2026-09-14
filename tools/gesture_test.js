@@ -5,21 +5,23 @@
 const fs = require('fs'), path = require('path');
 const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 const code = html.slice(html.indexOf('// ---REC START'), html.indexOf('// ---REC END'));
-const { recognize, normalize, SHAPES, TEMPLATES, seg, arc, distBestAngle, SIZE } =
-  new Function(code + ';return {recognize,normalize,SHAPES,TEMPLATES,seg,arc,distBestAngle,SIZE};')();
+const { recognize, scores, normalize, SHAPES, TEMPLATES, COMPACT, seg, arc } =
+  new Function(code + ';return {recognize,scores,normalize,SHAPES,TEMPLATES,COMPACT,seg,arc};')();
 
+// Кандидат: {shape: ()=>points, compact: true|false} — compact = нормализовать по осям независимо (круги, квадраты).
 const CAND = {};
 const only = process.argv.slice(2);
-for (const k of only) if (CAND[k] && !SHAPES[k]) { SHAPES[k] = CAND[k]; TEMPLATES[k] = normalize(SHAPES[k]()); }
+for (const k of only) if (CAND[k] && !SHAPES[k]) { SHAPES[k] = CAND[k].shape; if (CAND[k].compact) COMPACT[k] = 1; TEMPLATES[k] = normalize(SHAPES[k](), !!COMPACT[k]); }
 const ids = Object.keys(TEMPLATES);
 const pad = s => (s + '             ').slice(0, 13);
-const score = (p, id) => Math.max(0, 1 - distBestAngle(p, TEMPLATES[id]) / (0.5 * Math.SQRT2 * SIZE));
+const perfect = id => SHAPES[id]().map(p => ({ x: p.x * 260 + 20, y: p.y * 260 + 20 }));
 
-console.log('\nПохожесть шаблонов (выше = легче спутать; свой = 1.00):');
+console.log('\nПохожесть шаблонов (балл идеального росчерка A против шаблона B; выше = легче спутать):');
 console.log(pad('') + ids.map(i => pad(i.slice(0, 6))).join(''));
 let worst = { s: 0 };
 for (const a of ids) {
-  const row = ids.map(b => { const s = a === b ? 1 : score(TEMPLATES[a], b); if (a !== b && s > worst.s) worst = { s, a, b }; return s; });
+  const sc = Object.fromEntries(scores(perfect(a)).map(x => [x.id, x.score]));
+  const row = ids.map(b => { const s = sc[b]; if (a !== b && s > worst.s) worst = { s, a, b }; return s; });
   console.log(pad(a) + row.map(s => pad(s.toFixed(2))).join(''));
 }
 console.log(`Самая близкая пара: ${worst.a} ~ ${worst.b} = ${worst.s.toFixed(2)}`);
