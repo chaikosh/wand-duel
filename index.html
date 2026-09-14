@@ -78,7 +78,8 @@ button:focus-visible{outline:2px solid var(--frost);outline-offset:2px}
 .padwrap{position:relative;width:100%;aspect-ratio:1/1;max-height:52vh;margin:0 auto}
 canvas#pad{width:100%;height:100%;display:block;border:1px solid rgba(223,169,69,.28);border-radius:2px;background:
   radial-gradient(circle at 50% 50%, rgba(223,169,69,.06), transparent 70%)}
-.padwrap.locked canvas{opacity:.35}
+canvas#pad{transition:opacity .35s}
+.padwrap.locked canvas{opacity:.45}
 .timer{position:absolute;top:8px;right:10px;font-family:var(--font-display);font-size:26px;color:var(--ember);opacity:0}
 .timer.on{opacity:1}
 .log{font-size:15px;color:var(--parch-dim);line-height:1.35;min-height:60px;max-height:60px;overflow:hidden}
@@ -123,6 +124,7 @@ canvas#pad{width:100%;height:100%;display:block;border:1px solid rgba(223,169,69
 
 <section id="book">
   <div class="topbar"><h2>Учебник</h2><button data-go="menu">Назад</button></div>
+  <p class="muted small" style="margin-bottom:8px;line-height:1.35">У каждого 100 здоровья. Ромбы — концентрация: старт 3, максимум 5, +1 в начале своего хода; платят и атакующий, и защищающийся. Атакующий рисует любое заклинание по памяти, у защищающегося 4 секунды на ответ. Мастерство = форма × темп: ниже 62% — осечка, до 78% — слабо (×0.6), до 90% — чётко, выше — мастерски (×1.4). Уверенный быстрый штрих ценится выше медленного.</p>
   <p class="muted small" style="margin-bottom:6px">Точка — начало взмаха. Один непрерывный штрих.</p>
   <div class="list" id="spelllist"></div>
 </section>
@@ -274,7 +276,7 @@ const DIFF=[{name:'Первокурсник',mean:.68,sd:.12,pDef:.4},{name:'С�
 // ---- navigation
 const $=s=>document.querySelector(s);
 function go(id){document.querySelectorAll('section').forEach(s=>s.classList.toggle('on',s.id===id));}
-document.querySelectorAll('[data-go]').forEach(b=>b.addEventListener('click',()=>{if(b.id==='btn-quit') game.over=true; go(b.dataset.go);}));
+document.querySelectorAll('[data-go]').forEach(b=>b.addEventListener('click',()=>{if(b.id==='btn-quit'){game.over=true;if(game.quit)game.quit();pad.cancel();} go(b.dataset.go);}));
 let diff=0;
 $('#diffseg').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;diff=+b.dataset.d;
   $('#diffseg').querySelectorAll('button').forEach(x=>x.classList.toggle('sel',x===b));});
@@ -363,7 +365,7 @@ function makePad(wrap){
   const ctx=c.getContext('2d'); let pts=[],drawing=false,locked=true,resolver=null,fx=null,sh=null,blind=false;
   const hush=()=>{if(sh){sh.end();sh=null;}};
   function fit(){const r=wrap.getBoundingClientRect();const d=window.devicePixelRatio||1;c.width=r.width*d;c.height=r.height*d;ctx.setTransform(d,0,0,d,0,0);}
-  new ResizeObserver(fit).observe(wrap); fit();
+  new ResizeObserver(fit).observe(wrap); fit(); wrap.classList.add('locked');
   function pos(e){const r=c.getBoundingClientRect();return {x:e.clientX-r.left,y:e.clientY-r.top,t:performance.now()};}
   function render(){
     ctx.clearRect(0,0,c.width,c.height);
@@ -382,11 +384,12 @@ function makePad(wrap){
     await(){locked=false;wrap.classList.remove('locked');return new Promise(res=>{resolver=res;});},
     setBlind(b){blind=b;},
     size(){return c.getBoundingClientRect().width;},
+    drawing(){return drawing;},
     cancel(){locked=true;resolver=null;drawing=false;hush();},
     flash(color,ok){const f={color:ok?color:'#777',alpha:1};fx=f;let t=0;const id=setInterval(()=>{
       if(fx!==f){clearInterval(id);return;} // a new stroke or clear() took over the pad
-      t+=1;f.alpha=Math.max(0,1-t/30);if(ok&&t<6)f.alpha=1;render();if(t>=30){clearInterval(id);pts=[];fx=null;render();}},33);},
-    clear(){pts=[];fx=null;render();}
+      t+=1;f.alpha=Math.max(0,1-t/30);if(ok&&t<6)f.alpha=1;render();if(t>=30){clearInterval(id);pts=[];fx=null;render();if(locked)wrap.classList.add('locked');}},33);},
+    clear(){pts=[];fx=null;render();wrap.classList.add('locked');}
   };
 }
 const pad=makePad($('#padwrap'));
@@ -414,6 +417,7 @@ async function startPractice(id){
 const game={over:true};
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 function mkPlayer(name,ai){return {name,ai,hp:100,conc:3,disarmed:false,laugh:false,stunned:false,bound:false,guard:0,blind:false,venom:0,slow:false};}
+const V=(p,third,second)=>(p===game.me&&!game.twoP)?second:third;
 function statusText(p){const s=[];if(p.disarmed)s.push('без палочки');if(p.bound)s.push('связан');if(p.laugh)s.push('смеётся');if(p.stunned)s.push('оглушён');if(p.blind)s.push('ослеплён');if(p.venom)s.push('отравлен');if(p.slow)s.push('замедлен');if(p.guard)s.push('щит '+TIERS[p.guard].toLowerCase());return s.join(' · ');}
 function drawFighter(el,p){
   el.querySelector('.nm').textContent=p.name; el.querySelector('.hpn').textContent=p.hp;
@@ -448,21 +452,25 @@ async function humanCast(p,timeoutMs){
     let lastSec=Math.ceil(left);
     timer=setInterval(()=>{left=Math.max(0,(timeoutMs-(performance.now()-t0))/1000);tEl.textContent=left.toFixed(1);
       const s=Math.ceil(left);if(s<lastSec){lastSec=s;if(s>0&&s<=3)SFX.tick();}},100);
-    result=await Promise.race([gesture,sleep(timeoutMs).then(()=>null)]);
+    const quit=game.quitP.then(()=>'quit');
+    result=await Promise.race([gesture,quit,sleep(timeoutMs).then(()=>null)]);
+    // a finger still on the glass gets a short grace to finish the stroke
+    if(result===null&&pad.drawing()) result=await Promise.race([gesture,quit,sleep(700).then(()=>null)]);
     clearInterval(timer); tEl.classList.remove('on');
-    if(result===null){pad.cancel();pad.setBlind(false);SFX.misfire();return {timeout:true};}
-  } else result=await gesture;
+    if(result==='quit')return {aborted:true};
+    if(result===null){pad.cancel();pad.setBlind(false);pad.flash('#777',false);SFX.misfire();return {timeout:true};}
+  } else {result=await Promise.race([gesture,game.quitP.then(()=>'quit')]);if(result==='quit')return {aborted:true};}
   pad.setBlind(false);
   const r=recognize(result);
   if(!r){pad.flash('#777',false);SFX.misfire();return {id:null,score:0,tier:0};}
   const tempo=tempoOf(result,pad.size());
-  let score=mastery(r.score,tempo); if(p.laugh)score-=0.08; if(p.stunned)score-=0.15;
+  let score=mastery(r.score,tempo); if(p.laugh)score-=0.08; if(p.stunned)score-=0.15; score=Math.max(0,score);
   const tier=tierOf(score);
   pad.flash(SPELLS[r.id].color,tier>0);
   castSfx({id:r.id,tier},SPELLS[r.id].cost<=p.conc&&(!p.disarmed||r.id==='accio'));
   return {id:r.id,score,tier,tempo};
 }
-function aiCast(p,id){let s=clamp(gauss(DIFF[diff].mean,DIFF[diff].sd),0,1);if(p.laugh)s-=0.08;if(p.stunned)s-=0.15;if(p.blind)s-=0.10;return {id,score:s,tier:tierOf(s)};}
+function aiCast(p,id){let s=clamp(gauss(DIFF[diff].mean,DIFF[diff].sd),0,1);if(p.laugh)s-=0.08;if(p.stunned)s-=0.15;if(p.blind)s-=0.10;s=Math.max(0,s);return {id,score:s,tier:tierOf(s)};}
 function aiPickAttack(p){
   if(p.disarmed) return 'accio';
   const w=[]; const add=(id,k)=>{if(SPELLS[id].cost<=p.conc)for(let i=0;i<k;i++)w.push(id);};
@@ -480,44 +488,45 @@ function aiPickDefense(att,slow,conc){
 function castLabel(p,c){return `${p.name}: ${SPELLS[c.id].name} — ${TIERS[c.tier].toLowerCase()} (${Math.round(c.score*100)}%${c.tempo!=null?', '+TEMPO_LBL(c.tempo):''})`;}
 
 async function playTurn(A,D){
-  const aName=A.name;
-  if(A.venom){A.venom--;A.hp=Math.max(0,A.hp-6);SFX.hit(6);log(`Яд змеи: ${aName} теряет 6.`);msg('Укус змеи',`${aName} теряет 6`);refresh();await sleep(1000);if(A.hp<=0)return;}
-  // bound: skip
-  if(A.bound){A.bound=false;log(`${aName} связан и пропускает ход.`);msg(`${aName} связан`,'ход пропущен');refresh();await sleep(1300);return;}
+  const aName=A.name, gid=game.id, dead=()=>game.over||game.id!==gid;
+  if(A.venom){A.venom--;A.hp=Math.max(0,A.hp-6);SFX.hit(6);log(`Яд змеи: ${aName} ${V(A,'теряет','теряете')} 6.`);msg('Укус змеи',`${aName} ${V(A,'теряет','теряете')} 6`);refresh();await sleep(1000);if(A.hp<=0)return;}
   A.conc=Math.min(5,A.conc+1); refresh();
+  if(A.bound){A.bound=false;log(`${aName} ${V(A,'связан и пропускает','связаны и пропускаете')} ход.`);msg(`${aName} ${V(A,'связан','связаны')}`,'ход пропущен');refresh();await sleep(1300);return;}
   // attacker casts
   let cast;
-  if(A.ai){msg(`${aName} колдует…`);await sleep(900);cast=aiCast(A,aiPickAttack(A));castSfx(cast,true);}
+  if(A.ai){msg(`${aName} колдует…`);await sleep(900);if(dead())return;cast=aiCast(A,aiPickAttack(A));castSfx(cast,true);}
   else{
     if(game.twoP) await overlay(`${aName}, ваш ход`,A.disarmed?'Палочка выбита. Только Акцио вернёт её.':'Нарисуйте любое заклинание по памяти.','К палочке');
     msg('Ваш взмах',A.disarmed?'без палочки работает только Акцио':A.blind?'вы ослеплены — след палочки не виден':'что нарисуете — то и вылетит');
     cast=await humanCast(A);
-    if(game.over)return;
+    if(dead())return;
   }
   A.laugh=false;A.stunned=false;A.blind=false; // penalties are one-shot
-  if(!cast.id||cast.tier===0){log(`${aName}: осечка — палочка искрит.`);msg('Осечка','искры и дым');refresh();await sleep(1100);return;}
+  if(!cast.id||cast.tier===0){
+    const near=!A.ai&&cast.id?`ближе всего к «${SPELLS[cast.id].name}», ${Math.round(cast.score*100)}%`:'искры и дым';
+    log(`${aName}: осечка — ${near}.`);msg('Осечка',near);refresh();await sleep(1100);return;}
   const sp=SPELLS[cast.id];
-  if(A.disarmed&&cast.id!=='accio'){log(`${aName} без палочки бормочет «${sp.name}» — ничего не происходит.`);msg('Нет палочки','нужна Акцио');await sleep(1200);return;}
+  if(A.disarmed&&cast.id!=='accio'){log(`${aName} без палочки ${V(A,'бормочет','бормочете')} «${sp.name}» — ничего не происходит.`);msg('Нет палочки','нужна Акцио');await sleep(1200);return;}
   if(sp.cost>A.conc){log(`${aName}: не хватило концентрации на «${sp.name}».`);msg('Не хватает концентрации',`нужно ${sp.cost}, есть ${A.conc}`);await sleep(1200);return;}
   A.conc-=sp.cost; refresh();
   log(castLabel(A,cast));
-  if(cast.id==='confringo'&&cast.tier===1){A.hp=Math.max(0,A.hp-10);SFX.hit(10);msg('Взрыв в руке!',`${aName} получает 10`);log(`Конфринго взрывается в руке ${aName}: 10 урона себе.`);refresh();await sleep(1400);return;}
+  if(cast.id==='confringo'&&cast.tier===1){A.hp=Math.max(0,A.hp-10);SFX.hit(10);msg('Взрыв в руке!',`${aName} ${V(A,'получает','получаете')} 10`);log(`Конфринго взрывается ${V(A,`в руке ${aName}`,'в вашей руке')}: 10 урона себе.`);refresh();await sleep(1400);return;}
   // self-target spells
-  if(cast.id==='accio'){if(A.disarmed){A.disarmed=false;msg('Акцио!','палочка вернулась в руку');log(`${aName} возвращает палочку.`);}else msg('Акцио','палочка и так в руке');refresh();await sleep(1200);return;}
+  if(cast.id==='accio'){if(A.disarmed){A.disarmed=false;msg('Акцио!','палочка вернулась в руку');log(`${aName} ${V(A,'возвращает','возвращаете')} палочку.`);}else msg('Акцио','палочка и так в руке');refresh();await sleep(1200);return;}
   if(cast.id==='finite'){msg('Фините Инкантатем','чары сняты');A.laugh=false;A.stunned=false;A.blind=false;A.venom=0;A.slow=false;refresh();await sleep(1100);return;}
   if(cast.id==='protego'){A.guard=cast.tier;msg('Щит поднят',TIERS[cast.tier].toLowerCase());refresh();await sleep(1100);return;}
   // attack: defense phase
-  msg(`${sp.name}!`,TIERS[cast.tier].toLowerCase()); await sleep(700);
-  let def=null;
-  if(D.disarmed){log(`${D.name} без палочки не может защититься.`);}
-  else if(D.guard){def={id:'protego',score:0,tier:D.guard};D.guard=0;log(`Щит ${D.name} принимает удар.`);}
+  msg(`${sp.name}!`,TIERS[cast.tier].toLowerCase()); await sleep(700); if(dead())return;
+  let def=null, why=null;
+  if(D.disarmed){log(`${D.name} без палочки не ${V(D,'может','можете')} защититься.`);why='без палочки';}
+  else if(D.guard&&cast.id!=='expelliarmus'){def={id:'protego',score:0,tier:D.guard};D.guard=0;log(`${V(D,`Щит ${D.name}`,'Ваш щит')} принимает удар.`);}
   else if(D.ai){
-    msg(`${D.name} защищается…`);await sleep(600);
+    msg(`${D.name} защищается…`);await sleep(600); if(dead())return;
     const pick=aiPickDefense(cast.id,D.slow,D.conc); D.slow=false;
-    if(!pick){log(`${D.name}: нет концентрации на защиту.`);}
+    if(!pick){log(`${D.name}: нет концентрации на защиту.`);why='нет концентрации';}
     else{
       def=aiCast(D,pick);castSfx(def,true);D.laugh=false;D.stunned=false;D.blind=false;
-      if(def.tier===0){log(`${D.name}: осечка в защите.`);def=null;}
+      if(def.tier===0){log(`${D.name}: осечка в защите.`);def=null;why='осечка в защите';}
       else{D.conc-=SPELLS[def.id].cost;log(castLabel(D,def));}
     }
   }
@@ -525,24 +534,24 @@ async function playTurn(A,D){
     const tw=D.slow?2500:4000, secs=(tw/1000).toString().replace('.',',')+' секунды'; D.slow=false;
     if(game.twoP) await overlay(`${D.name}, защищайтесь!`,`Летит ${sp.name}. После нажатия у вас ${secs}.`,'Защищаюсь');
     msg(`Летит ${sp.name}!`,secs+' на ответ'+(D.blind?' · вы ослеплены':''));
-    def=await humanCast(D,tw); if(game.over)return;
+    def=await humanCast(D,tw); if(dead())return;
     D.laugh=false;D.stunned=false;D.blind=false;
-    if(def.timeout){def=null;log(`${D.name} не успевает.`);}
-    else if(!def.id||def.tier===0){log(`${D.name}: осечка в защите.`);def=null;}
-    else if(SPELLS[def.id].cost>D.conc){log(`${D.name}: не хватило концентрации на защиту.`);def=null;}
+    if(def.timeout){def=null;why=V(D,`${D.name} не успевает`,'вы не успели');log(why+'.');}
+    else if(!def.id||def.tier===0){why=def.id?`осечка: ближе всего к «${SPELLS[def.id].name}», ${Math.round(def.score*100)}%`:'осечка в защите';log(`${D.name}: ${why}.`);def=null;}
+    else if(SPELLS[def.id].cost>D.conc){why=`не хватило концентрации на ${SPELLS[def.id].name}`;log(`${D.name}: ${why}.`);def=null;}
     else{D.conc-=SPELLS[def.id].cost;log(castLabel(D,def));}
   }
   refresh();
-  resolve(A,D,cast,def);
+  resolve(A,D,cast,def,why);
   refresh(); await sleep(1500);
 }
-function resolve(A,D,cast,def){
+function resolve(A,D,cast,def,why){
   const sp=SPELLS[cast.id]; const dmgFull=Math.round(sp.dmg*MULT[cast.tier]);
-  const hit=(mult,extra)=>{const d=Math.round(dmgFull*mult);D.hp=Math.max(0,D.hp-d);SFX.hit(d);msg(`${sp.name} попадает`,`${d} урона${extra?' · '+extra:''}`);log(`${D.name} получает ${d}.${extra?' '+extra:''}`);};
+  const hit=(mult,extra)=>{const d=Math.round(dmgFull*mult);D.hp=Math.max(0,D.hp-d);SFX.hit(d);const note=[why,extra].filter(Boolean).join(' · ');msg(`${sp.name} попадает`,`${d} урона${note?' · '+note:''}`);log(`${D.name} ${V(D,'получает','получаете')} ${d}.${extra?' '+extra:''}`);};
   if(cast.id==='expelliarmus'){
     if(def&&def.id==='expelliarmus'){
       SFX.clash();
-      if(def.score>cast.score){A.disarmed=true;msg('Встречный удар!',`${A.name} теряет палочку`);log(`Лучи сталкиваются — палочка ${A.name} летит в сторону.`);}
+      if(def.score>cast.score){A.disarmed=true;msg('Встречный удар!',`${A.name} ${V(A,'теряет','теряете')} палочку`);log(`Лучи сталкиваются — ${V(A,`палочка ${A.name}`,'ваша палочка')} летит в сторону.`);}
       else{D.disarmed=true;hit(1,'палочка выбита');}
       return;
     }
@@ -554,7 +563,7 @@ function resolve(A,D,cast,def){
     return;
   }
   if((cast.id==='petrificus'||cast.id==='serpensortia')&&def&&def.id==='finite'){SFX.dispel();msg('Чары отменены','Фините сработало');log(`Фините разрушает ${sp.name}.`);return;}
-  if(def&&def.id!=='protego'){log(`${SPELLS[def.id].name} не помогает против ${sp.name}.`);}
+  if(def&&def.id!=='protego'){why=why||`${SPELLS[def.id].name} не защищает`;log(`${sp.name} проходит: ${SPELLS[def.id].name} не защищает.`);}
   if(cast.id==='stupefy'){if(cast.tier===3){D.stunned=true;hit(1,'оглушён');}else hit(1);return;}
   if(cast.id==='petrificus'){D.bound=true;hit(1,'связан');return;}
   if(cast.id==='rictusempra'){D.laugh=true;hit(1,'хохочет');return;}
@@ -565,6 +574,7 @@ function resolve(A,D,cast,def){
 }
 async function startGame(twoP){
   game.over=false; game.twoP=twoP; game.round=1; logLines.length=0; $('#log').innerHTML='';
+  game.quitP=new Promise(r=>{game.quit=r;}); game.id=(game.id||0)+1; const gid=game.id;
   game.me=mkPlayer(twoP?'Игрок 1':'Вы',false);
   game.opp=twoP?mkPlayer('Игрок 2',false):mkPlayer(DIFF[diff].name,true);
   // for pass-and-play the bottom panel always shows whoever is acting? keep fixed: me=Игрок 1 bottom
@@ -573,11 +583,11 @@ async function startGame(twoP){
   let cur=Math.random()<.5?0:1; const P=[game.me,game.opp];
   if(!twoP)cur=0;
   while(!game.over){
-    await playTurn(P[cur],P[1-cur]); if(game.over)return;
+    await playTurn(P[cur],P[1-cur]); if(game.over||game.id!==gid)return;
     if(P[0].hp<=0||P[1].hp<=0){game.over=true;const win=P[0].hp>0?P[0]:P[1];const lose=P[0].hp>0?P[1]:P[0];
       SFX.jingle(twoP||win===game.me);await sleep(600);go('result');
       $('#res-title').textContent= twoP?`${win.name} побеждает`:(win===game.me?'Победа':'Поражение');
-      $('#res-sub').textContent= `${lose.name} выбывает на ${game.round}-м раунде. У победителя осталось ${win.hp} здоровья.`;
+      $('#res-sub').textContent= `${lose.name} ${V(lose,'выбывает','выбываете')} на ${game.round}-м раунде. У победителя осталось ${win.hp} здоровья.`;
       return;}
     cur=1-cur; if(cur===0)game.round++;
   }
