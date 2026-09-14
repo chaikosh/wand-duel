@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Дуэль волшебников — прототип</title>
+<link href="https://fonts.googleapis.com/css2?family=IM+Fell+English:ital@0;1&family=Cormorant+Garamond:ital,wght@0,500;0,600;1,500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --night:#141a2a; --deep:#0b0e18; --parch:#e9dfc6; --parch-dim:#b7ad95;
+  --gold:#dfa945; --gold-dim:#8d6a2a; --ember:#e14b30; --frost:#9cc3e6; --moss:#7aa66a;
+  --hp:#c94a3c; --font-display:'IM Fell English', Georgia, serif; --font-body:'Cormorant Garamond', Georgia, serif;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--deep);color:var(--parch);font-family:var(--font-body);font-size:18px;overflow:hidden;
+  -webkit-user-select:none;user-select:none;touch-action:none}
+body{background:
+  radial-gradient(ellipse at 50% -10%, #2a3350 0%, transparent 55%),
+  radial-gradient(ellipse at 50% 110%, #22182a 0%, transparent 50%),
+  var(--deep)}
+#app{height:100%;max-width:520px;margin:0 auto;position:relative;display:flex;flex-direction:column}
+section{display:none;height:100%;flex-direction:column;padding:16px}
+section.on{display:flex}
+h1{font-family:var(--font-display);font-weight:400;font-size:44px;line-height:1;margin:0;letter-spacing:.5px}
+h2{font-family:var(--font-display);font-weight:400;font-size:26px;margin:0}
+p{margin:0}
+button{font-family:var(--font-body);font-size:19px;color:var(--parch);background:transparent;border:1px solid var(--gold-dim);
+  padding:12px 16px;border-radius:2px;cursor:pointer;text-align:left}
+button:active{background:rgba(223,169,69,.12)}
+button.primary{border-color:var(--gold);background:linear-gradient(180deg,rgba(223,169,69,.18),rgba(223,169,69,.05))}
+button:focus-visible{outline:2px solid var(--frost);outline-offset:2px}
+.stack{display:flex;flex-direction:column;gap:10px}
+.row{display:flex;gap:8px;align-items:center}
+.muted{color:var(--parch-dim)}
+.small{font-size:15px}
+
+/* Menu */
+#menu{justify-content:center;gap:26px}
+#menu .title{position:relative}
+#menu .title::after{content:"";display:block;width:64px;height:1px;background:var(--gold);margin-top:18px}
+#menu .sub{font-style:italic;color:var(--parch-dim);margin-top:10px}
+.seg{display:flex;border:1px solid var(--gold-dim);border-radius:2px;overflow:hidden}
+.seg button{flex:1;border:0;border-right:1px solid var(--gold-dim);text-align:center;padding:9px 4px;font-size:16px}
+.seg button:last-child{border-right:0}
+.seg button.sel{background:rgba(223,169,69,.22);color:var(--gold)}
+
+/* Spellbook */
+#book{overflow:hidden}
+#book .list{overflow-y:auto;flex:1;margin:0 -16px;padding:0 16px;touch-action:pan-y}
+.spell{display:grid;grid-template-columns:96px 1fr;gap:14px;padding:16px 0;border-bottom:1px solid rgba(223,169,69,.18);align-items:center}
+.spell svg{width:96px;height:96px;background:rgba(255,255,255,.03);border-radius:2px}
+.spell svg polyline{fill:none;stroke:var(--gold);stroke-width:4;stroke-linecap:round;stroke-linejoin:round;
+  stroke-dasharray:600;stroke-dashoffset:600;animation:draw 2.4s ease-in-out infinite}
+.spell svg circle{fill:var(--frost)}
+@keyframes draw{0%{stroke-dashoffset:600;opacity:.2}15%{opacity:1}60%{stroke-dashoffset:0;opacity:1}85%{opacity:1}100%{stroke-dashoffset:0;opacity:0}}
+@media (prefers-reduced-motion:reduce){.spell svg polyline{animation:none;stroke-dashoffset:0}}
+.spell .name{font-family:var(--font-display);font-size:22px}
+.spell .kind{color:var(--gold);font-size:15px;font-style:italic}
+.spell .desc{font-size:16px;line-height:1.3;margin-top:4px}
+.spell .how{font-size:15px;color:var(--parch-dim);margin-top:4px}
+.spell button{margin-top:8px;padding:6px 12px;font-size:16px}
+
+/* Duel */
+#duel,#practice{padding:12px 14px}
+.fighter{display:flex;flex-direction:column;gap:5px}
+.fighter .row{justify-content:space-between}
+.fighter .nm{font-family:var(--font-display);font-size:20px}
+.bar{height:8px;background:rgba(255,255,255,.08);border-radius:1px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--hp);transition:width .5s ease}
+.pips{display:flex;gap:4px}
+.pips b{width:14px;height:14px;border:1px solid var(--gold-dim);transform:rotate(45deg);transition:background .3s}
+.pips b.on{background:var(--gold);border-color:var(--gold)}
+.status{display:flex;gap:6px;min-height:20px;font-size:14px;color:var(--frost);font-style:italic}
+.stage{flex:1;display:flex;flex-direction:column;justify-content:center;gap:8px;min-height:0}
+.msg{min-height:58px;text-align:center;font-family:var(--font-display);font-size:22px;line-height:1.15;transition:opacity .2s}
+.msg small{display:block;font-family:var(--font-body);font-size:16px;color:var(--parch-dim);font-style:italic;margin-top:4px}
+.padwrap{position:relative;width:100%;aspect-ratio:1/1;max-height:52vh;margin:0 auto}
+canvas#pad{width:100%;height:100%;display:block;border:1px solid rgba(223,169,69,.28);border-radius:2px;background:
+  radial-gradient(circle at 50% 50%, rgba(223,169,69,.06), transparent 70%)}
+.padwrap.locked canvas{opacity:.35}
+.timer{position:absolute;top:8px;right:10px;font-family:var(--font-display);font-size:26px;color:var(--ember);opacity:0}
+.timer.on{opacity:1}
+.log{font-size:15px;color:var(--parch-dim);line-height:1.35;min-height:60px;max-height:60px;overflow:hidden}
+.log div:first-child{color:var(--parch)}
+.topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.topbar button{padding:6px 10px;font-size:15px}
+
+/* Overlay */
+#overlay{position:absolute;inset:0;background:rgba(11,14,24,.94);display:none;flex-direction:column;justify-content:center;align-items:center;
+  text-align:center;padding:30px;gap:16px;z-index:10}
+#overlay.on{display:flex}
+#overlay h2{font-size:32px}
+#overlay p{font-size:19px;color:var(--parch-dim);max-width:320px}
+
+/* Result */
+#result{justify-content:center;align-items:center;text-align:center;gap:18px}
+#result h1{font-size:40px}
+</style>
+</head>
+<body>
+<div id="app">
+
+<section id="menu" class="on">
+  <div class="title">
+    <h1>Дуэль<br>волшебников</h1>
+    <p class="sub">Прототип. Заклинания рисуются по памяти.</p>
+  </div>
+  <div class="stack">
+    <p class="muted small">Противник</p>
+    <div class="seg" id="diffseg">
+      <button data-d="0" class="sel">Первокурсник</button>
+      <button data-d="1">Староста</button>
+      <button data-d="2">Мракоборец</button>
+    </div>
+    <button class="primary" id="btn-ai">Дуэль с противником</button>
+    <button id="btn-2p">Два игрока на одном телефоне</button>
+    <button id="btn-book">Учебник заклинаний</button>
+  </div>
+  <p class="muted small">Сначала загляните в учебник: в дуэли подсказок нет. Что нарисуете — то и вылетит из палочки.</p>
+</section>
+
+<section id="book">
+  <div class="topbar"><h2>Учебник</h2><button data-go="menu">Назад</button></div>
+  <p class="muted small" style="margin-bottom:6px">Точка — начало взмаха. Один непрерывный штрих.</p>
+  <div class="list" id="spelllist"></div>
+</section>
+
+<section id="practice">
+  <div class="topbar"><h2 id="pr-title">Практика</h2><button data-go="book">Учебник</button></div>
+  <div class="stage">
+    <div class="msg" id="pr-msg">Нарисуйте заклинание</div>
+    <div class="padwrap" id="pr-padwrap"></div>
+  </div>
+  <p class="muted small" style="text-align:center;margin-top:8px">Показывается, какое заклинание распозналось и с какой точностью.</p>
+</section>
+
+<section id="duel">
+  <div class="topbar"><span class="muted small" id="roundlbl">Раунд 1</span><button data-go="menu" id="btn-quit">Сдаться</button></div>
+  <div class="fighter" id="f-opp">
+    <div class="row"><span class="nm"></span><span class="hpn">100</span></div>
+    <div class="bar"><i style="width:100%"></i></div>
+    <div class="row"><div class="pips"></div><div class="status"></div></div>
+  </div>
+  <div class="stage">
+    <div class="msg" id="msg">Ваш ход</div>
+    <div class="padwrap" id="padwrap"><div class="timer" id="timer"></div></div>
+  </div>
+  <div class="fighter" id="f-me">
+    <div class="row"><div class="pips"></div><div class="status"></div></div>
+    <div class="bar"><i style="width:100%"></i></div>
+    <div class="row"><span class="nm"></span><span class="hpn">100</span></div>
+  </div>
+  <div class="log" id="log"></div>
+</section>
+
+<section id="result">
+  <h1 id="res-title">Победа</h1>
+  <p id="res-sub" class="muted"></p>
+  <button class="primary" id="btn-again">Ещё дуэль</button>
+  <button data-go="menu">В меню</button>
+</section>
+
+<div id="overlay"><h2 id="ov-title"></h2><p id="ov-text"></p><button class="primary" id="ov-btn">Готов</button></div>
+</div>
+
+<script>
+// ---REC START
+const N_PTS = 64, SIZE = 250;
+const dist = (a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+function pathLength(p){let d=0;for(let i=1;i<p.length;i++)d+=dist(p[i-1],p[i]);return d;}
+function resample(points,n){
+  const pts=points.map(p=>({x:p.x,y:p.y}));
+  const I=pathLength(pts)/(n-1); let D=0; const out=[pts[0]];
+  for(let i=1;i<pts.length;i++){
+    const d=dist(pts[i-1],pts[i]);
+    if(D+d>=I && d>0){
+      const t=(I-D)/d; const q={x:pts[i-1].x+t*(pts[i].x-pts[i-1].x),y:pts[i-1].y+t*(pts[i].y-pts[i-1].y)};
+      out.push(q); pts.splice(i,0,q); D=0;
+    } else D+=d;
+  }
+  while(out.length<n) out.push(pts[pts.length-1]);
+  return out.slice(0,n);
+}
+function normalize(points){
+  let p=resample(points,N_PTS);
+  let minx=1e9,miny=1e9,maxx=-1e9,maxy=-1e9;
+  for(const q of p){minx=Math.min(minx,q.x);maxx=Math.max(maxx,q.x);miny=Math.min(miny,q.y);maxy=Math.max(maxy,q.y);}
+  const s=SIZE/Math.max(maxx-minx,maxy-miny,1e-6);
+  p=p.map(q=>({x:q.x*s,y:q.y*s}));
+  let cx=0,cy=0; for(const q of p){cx+=q.x;cy+=q.y;} cx/=p.length;cy/=p.length;
+  return p.map(q=>({x:q.x-cx,y:q.y-cy}));
+}
+function rotate(p,a){const c=Math.cos(a),s=Math.sin(a);return p.map(q=>({x:q.x*c-q.y*s,y:q.x*s+q.y*c}));}
+function pathDist(a,b){let d=0;for(let i=0;i<a.length;i++)d+=dist(a[i],b[i]);return d/a.length;}
+function distBestAngle(p,t){
+  // small tolerance to hand tilt, but orientation stays meaningful
+  let best=1e9;
+  for(let a=-12;a<=12;a+=4){best=Math.min(best,pathDist(rotate(p,a*Math.PI/180),t));}
+  return best;
+}
+function recognize(points,templates){
+  if(points.length<6||pathLength(points)<40) return null;
+  const p=normalize(points); let best=null;
+  for(const id in templates){
+    const d=distBestAngle(p,templates[id]);
+    const score=Math.max(0,1-d/(0.5*Math.SQRT2*SIZE));
+    if(!best||score>best.score) best={id,score};
+  }
+  return best;
+}
+// gesture shapes in a unit box (y down)
+function seg(out,a,b,n){for(let i=0;i<=n;i++){const t=i/n;out.push({x:a.x+t*(b.x-a.x),y:a.y+t*(b.y-a.y)});}return out;}
+function arc(out,cx,cy,r,a0,a1,n){for(let i=0;i<=n;i++){const a=a0+(a1-a0)*i/n;out.push({x:cx+r*Math.cos(a),y:cy+r*Math.sin(a)});}return out;}
+const SHAPES={
+  expelliarmus:()=>{let o=[];seg(o,{x:.05,y:.7},{x:.72,y:.7},30);arc(o,.72,.48,.22,Math.PI/2,-Math.PI/2,30);return o;},
+  stupefy:()=>{let o=[];seg(o,{x:.62,y:.05},{x:.3,y:.5},20);seg(o,{x:.3,y:.5},{x:.7,y:.5},20);seg(o,{x:.7,y:.5},{x:.38,y:.95},20);return o;},
+  protego:()=>{let o=[];arc(o,.5,.78,.45,Math.PI,0,60);return o;},
+  petrificus:()=>{let o=[];seg(o,{x:.1,y:.1},{x:.9,y:.1},20);seg(o,{x:.9,y:.1},{x:.9,y:.9},20);seg(o,{x:.9,y:.9},{x:.1,y:.9},20);seg(o,{x:.1,y:.9},{x:.1,y:.1},20);return o;},
+  rictusempra:()=>{let o=[];for(let i=0;i<=60;i++){const t=i/60;o.push({x:.05+.9*t,y:.5-.25*Math.sin(t*Math.PI*4)});}return o;},
+  finite:()=>{let o=[];arc(o,.5,.5,.42,-Math.PI/2,-Math.PI/2-2*Math.PI,60);return o;},
+  accio:()=>{let o=[];seg(o,{x:.1,y:.15},{x:.5,y:.9},30);seg(o,{x:.5,y:.9},{x:.9,y:.15},30);return o;},
+};
+const TEMPLATES={}; for(const k in SHAPES) TEMPLATES[k]=normalize(SHAPES[k]());
+// ---REC END
+
+const SPELLS={
+  expelliarmus:{name:'Экспеллиармус',kind:'Разоружение',cost:2,dmg:8,color:'#ff5a3c',
+    desc:'8 урона и выбивает палочку: без палочки противник может только звать её Акцио и не защищается. Протего не спасает — только встречный Экспеллиармус, и побеждает тот, чей взмах точнее.',
+    how:'Резкий выпад вправо, в конце — крюк вверх и назад.'},
+  stupefy:{name:'Ступефай',kind:'Атака',cost:1,dmg:22,color:'#ff2d2d',
+    desc:'22 урона. Мастерский взмах ещё и оглушает: следующий каст противника получается хуже. Блокируется Протего.',
+    how:'Молния сверху вниз: влево, вправо, снова влево.'},
+  petrificus:{name:'Петрификус Тоталус',kind:'Атака',cost:3,dmg:15,color:'#b58cff',
+    desc:'15 урона и связывает: противник пропускает следующий ход. Блокируется Протего, снимается Фините. Дорого и легко смазать.',
+    how:'Квадрат по часовой стрелке, начиная с верхнего левого угла.'},
+  rictusempra:{name:'Риктусемпра',kind:'Атака',cost:0,dmg:12,color:'#ffc857',
+    desc:'12 урона, ничего не стоит. Противник заливается смехом, и его следующий каст выходит хуже. Блокируется Протего.',
+    how:'Волна слева направо, два гребня.'},
+  protego:{name:'Протего',kind:'Защита',cost:1,dmg:0,color:'#9cc3e6',
+    desc:'В защите гасит Ступефай, Риктусемпру и Петрификус. Слабый щит пропускает половину урона. На своём ходу — поднимает щит заранее на один удар.',
+    how:'Купол: слева вверх, через верх и вниз направо.'},
+  finite:{name:'Фините Инкантатем',kind:'Снятие чар',cost:1,dmg:0,color:'#7aa66a',
+    desc:'В защите отменяет Петрификус. На своём ходу снимает смех и оглушение с себя.',
+    how:'Круг против часовой стрелки, начиная сверху.'},
+  accio:{name:'Акцио',kind:'Призыв',cost:0,dmg:0,color:'#dfa945',
+    desc:'Возвращает выбитую палочку. Единственное, что можно колдовать без палочки.',
+    how:'Галочка: вниз, потом резко вверх.'},
+};
+const TIERS=['Осечка','Слабо','Чётко','Мастерски'];
+const MULT=[0,0.6,1,1.4];
+function tierOf(score){ if(score<0.62) return 0; if(score<0.78) return 1; if(score<0.9) return 2; return 3; }
+const DIFF=[{name:'Первокурсник',mean:.68,sd:.12,pDef:.4},{name:'Староста',mean:.78,sd:.1,pDef:.65},{name:'Мракоборец',mean:.88,sd:.07,pDef:.85}];
+
+// ---- navigation
+const $=s=>document.querySelector(s);
+function go(id){document.querySelectorAll('section').forEach(s=>s.classList.toggle('on',s.id===id));}
+document.querySelectorAll('[data-go]').forEach(b=>b.addEventListener('click',()=>{if(b.id==='btn-quit') game.over=true; go(b.dataset.go);}));
+let diff=0;
+$('#diffseg').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;diff=+b.dataset.d;
+  $('#diffseg').querySelectorAll('button').forEach(x=>x.classList.toggle('sel',x===b));});
+
+// ---- spellbook
+function gestureSVG(id){
+  const pts=SHAPES[id]().map(p=>`${(p.x*100).toFixed(1)},${(p.y*100).toFixed(1)}`).join(' ');
+  const s=SHAPES[id]()[0];
+  return `<svg viewBox="0 0 100 100" aria-label="жест"><polyline points="${pts}"/><circle cx="${s.x*100}" cy="${s.y*100}" r="4"/></svg>`;
+}
+(function buildBook(){
+  const list=$('#spelllist'); list.innerHTML='';
+  for(const id in SPELLS){const s=SPELLS[id];
+    const el=document.createElement('div'); el.className='spell';
+    el.innerHTML=`${gestureSVG(id)}<div><div class="name">${s.name}</div><div class="kind">${s.kind}${s.cost?` · стоит ${s.cost}`:' · бесплатно'}</div>
+      <div class="desc">${s.desc}</div><div class="how">${s.how}</div><button data-pr="${id}">Потренировать</button></div>`;
+    list.appendChild(el);
+  }
+  list.addEventListener('click',e=>{const b=e.target.closest('[data-pr]');if(!b)return;startPractice(b.dataset.pr);});
+})();
+
+// ---- drawing pad
+function makePad(wrap){
+  const c=document.createElement('canvas'); c.id='pad'; wrap.prepend(c);
+  const ctx=c.getContext('2d'); let pts=[],drawing=false,locked=true,resolver=null,fx=null;
+  function fit(){const r=wrap.getBoundingClientRect();const d=window.devicePixelRatio||1;c.width=r.width*d;c.height=r.height*d;ctx.setTransform(d,0,0,d,0,0);}
+  new ResizeObserver(fit).observe(wrap); fit();
+  function pos(e){const r=c.getBoundingClientRect();return {x:e.clientX-r.left,y:e.clientY-r.top};}
+  function render(){
+    ctx.clearRect(0,0,c.width,c.height);
+    if(pts.length<2) return;
+    const col=fx?fx.color:'#f0d28a';
+    ctx.lineCap='round';ctx.lineJoin='round';
+    ctx.shadowColor=col;ctx.shadowBlur=fx?18:12;ctx.strokeStyle=col;ctx.lineWidth=fx?5:4;ctx.globalAlpha=fx?fx.alpha:1;
+    ctx.beginPath();ctx.moveTo(pts[0].x,pts[0].y);for(let i=1;i<pts.length;i++)ctx.lineTo(pts[i].x,pts[i].y);ctx.stroke();
+    ctx.shadowBlur=0;ctx.globalAlpha=1;
+  }
+  c.addEventListener('pointerdown',e=>{if(locked)return;drawing=true;fx=null;pts=[pos(e)];c.setPointerCapture(e.pointerId);render();});
+  c.addEventListener('pointermove',e=>{if(!drawing)return;pts.push(pos(e));render();});
+  const end=e=>{if(!drawing)return;drawing=false;const r=resolver;resolver=null;locked=true;if(r)r(pts.slice());};
+  c.addEventListener('pointerup',end);c.addEventListener('pointercancel',end);
+  return {
+    await(){locked=false;wrap.classList.remove('locked');return new Promise(res=>{resolver=res;});},
+    cancel(){locked=true;resolver=null;drawing=false;},
+    flash(color,ok){fx={color:ok?color:'#777',alpha:1};let t=0;const id=setInterval(()=>{t+=1;fx.alpha=Math.max(0,1-t/30);if(ok&&t<6)fx.alpha=1;render();if(t>=30){clearInterval(id);pts=[];fx=null;render();}},33);},
+    clear(){pts=[];fx=null;render();}
+  };
+}
+const pad=makePad($('#padwrap'));
+const prPad=makePad($('#pr-padwrap'));
+
+// ---- practice
+let prActive=false;
+async function startPractice(id){
+  go('practice'); $('#pr-title').textContent=SPELLS[id].name; $('#pr-msg').innerHTML='Нарисуйте по памяти<small>'+SPELLS[id].how+'</small>';
+  prActive=true;
+  while(prActive && $('#practice').classList.contains('on')){
+    const pts=await prPad.await(); if(!$('#practice').classList.contains('on')) break;
+    const r=recognize(pts,TEMPLATES);
+    if(!r){$('#pr-msg').innerHTML='Слишком короткий взмах';prPad.flash('#777',false);continue;}
+    const t=tierOf(r.score); const hit=r.id===id;
+    prPad.flash(SPELLS[r.id].color,t>0);
+    $('#pr-msg').innerHTML= t===0 ? `Осечка<small>ближе всего к «${SPELLS[r.id].name}», точность ${Math.round(r.score*100)}%</small>`
+      : `${SPELLS[r.id].name} — ${TIERS[t]}<small>точность ${Math.round(r.score*100)}%${hit?'':' · это не то заклинание, что вы тренируете'}</small>`;
+  }
+}
+
+// ---- game
+const game={over:true};
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+function mkPlayer(name,ai){return {name,ai,hp:100,conc:3,disarmed:false,laugh:false,stunned:false,bound:false,guard:0};}
+function statusText(p){const s=[];if(p.disarmed)s.push('без палочки');if(p.bound)s.push('связан');if(p.laugh)s.push('смеётся');if(p.stunned)s.push('оглушён');if(p.guard)s.push('щит '+TIERS[p.guard].toLowerCase());return s.join(' · ');}
+function drawFighter(el,p){
+  el.querySelector('.nm').textContent=p.name; el.querySelector('.hpn').textContent=p.hp;
+  el.querySelector('.bar i').style.width=p.hp+'%';
+  el.querySelector('.pips').innerHTML=Array.from({length:5},(_,i)=>`<b class="${i<p.conc?'on':''}"></b>`).join('');
+  el.querySelector('.status').textContent=statusText(p);
+}
+function refresh(){drawFighter($('#f-me'),game.me);drawFighter($('#f-opp'),game.opp);$('#roundlbl').textContent='Раунд '+game.round;}
+const logLines=[];
+function log(t){logLines.unshift(t);if(logLines.length>3)logLines.pop();$('#log').innerHTML=logLines.map(l=>`<div>${l}</div>`).join('');}
+function msg(h,s){$('#msg').innerHTML=h+(s?`<small>${s}</small>`:'');}
+function overlay(title,text,btn){return new Promise(res=>{$('#ov-title').textContent=title;$('#ov-text').textContent=text;$('#ov-btn').textContent=btn||'Готов';
+  $('#overlay').classList.add('on');$('#ov-btn').onclick=()=>{$('#overlay').classList.remove('on');res();};});}
+function gauss(m,sd){let u=0,v=0;while(!u)u=Math.random();while(!v)v=Math.random();return m+sd*Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);}
+const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
+
+async function humanCast(p,timeoutMs){
+  // returns {id,score,tier} or null (misfire/timeout)
+  let timer=null;
+  const tEl=$('#timer');
+  const gesture=pad.await();
+  let result;
+  if(timeoutMs){
+    tEl.classList.add('on'); let left=timeoutMs/1000; tEl.textContent=left.toFixed(1);
+    const t0=performance.now();
+    timer=setInterval(()=>{left=Math.max(0,(timeoutMs-(performance.now()-t0))/1000);tEl.textContent=left.toFixed(1);},100);
+    result=await Promise.race([gesture,sleep(timeoutMs).then(()=>null)]);
+    clearInterval(timer); tEl.classList.remove('on');
+    if(result===null){pad.cancel();return {timeout:true};}
+  } else result=await gesture;
+  const r=recognize(result,TEMPLATES);
+  if(!r){pad.flash('#777',false);return {id:null,score:0,tier:0};}
+  let score=r.score; if(p.laugh)score-=0.08; if(p.stunned)score-=0.15;
+  const tier=tierOf(score);
+  pad.flash(SPELLS[r.id].color,tier>0);
+  return {id:r.id,score,tier};
+}
+function aiCast(p,id){let s=clamp(gauss(DIFF[diff].mean,DIFF[diff].sd),0,1);if(p.laugh)s-=0.08;if(p.stunned)s-=0.15;return {id,score:s,tier:tierOf(s)};}
+function aiPickAttack(p){
+  if(p.disarmed) return 'accio';
+  const w=[]; const add=(id,k)=>{if(SPELLS[id].cost<=p.conc)for(let i=0;i<k;i++)w.push(id);};
+  add('stupefy',3);add('expelliarmus',2);add('petrificus',2);add('rictusempra',1);if(!p.guard)add('protego',1);if(p.laugh||p.stunned)add('finite',3);
+  return w[Math.floor(Math.random()*w.length)];
+}
+function aiPickDefense(att){
+  const correct= att==='expelliarmus'?'expelliarmus':(att==='petrificus'&&Math.random()<.4?'finite':'protego');
+  if(Math.random()<DIFF[diff].pDef) return correct;
+  const pool=['protego','stupefy','finite','expelliarmus','rictusempra'];return pool[Math.floor(Math.random()*pool.length)];
+}
+function castLabel(p,c){return `${p.name}: ${SPELLS[c.id].name} — ${TIERS[c.tier].toLowerCase()} (${Math.round(c.score*100)}%)`;}
+
+async function playTurn(A,D){
+  const aName=A.name;
+  // bound: skip
+  if(A.bound){A.bound=false;log(`${aName} связан и пропускает ход.`);msg(`${aName} связан`,'ход пропущен');refresh();await sleep(1300);return;}
+  A.conc=Math.min(5,A.conc+1); refresh();
+  // attacker casts
+  let cast;
+  if(A.ai){msg(`${aName} колдует…`);await sleep(900);cast=aiCast(A,aiPickAttack(A));}
+  else{
+    if(game.twoP) await overlay(`${aName}, ваш ход`,A.disarmed?'Палочка выбита. Только Акцио вернёт её.':'Нарисуйте любое заклинание по памяти.','К палочке');
+    msg('Ваш взмах',A.disarmed?'без палочки работает только Акцио':'что нарисуете — то и вылетит');
+    cast=await humanCast(A);
+    if(game.over)return;
+  }
+  A.laugh=false;A.stunned=false; // penalties are one-shot
+  if(!cast.id||cast.tier===0){log(`${aName}: осечка — палочка искрит.`);msg('Осечка','искры и дым');refresh();await sleep(1100);return;}
+  const sp=SPELLS[cast.id];
+  if(A.disarmed&&cast.id!=='accio'){log(`${aName} без палочки бормочет «${sp.name}» — ничего не происходит.`);msg('Нет палочки','нужна Акцио');await sleep(1200);return;}
+  if(sp.cost>A.conc){log(`${aName}: не хватило концентрации на «${sp.name}».`);msg('Не хватает концентрации',`нужно ${sp.cost}, есть ${A.conc}`);await sleep(1200);return;}
+  A.conc-=sp.cost; refresh();
+  log(castLabel(A,cast));
+  // self-target spells
+  if(cast.id==='accio'){if(A.disarmed){A.disarmed=false;msg('Акцио!','палочка вернулась в руку');log(`${aName} возвращает палочку.`);}else msg('Акцио','палочка и так в руке');refresh();await sleep(1200);return;}
+  if(cast.id==='finite'){msg('Фините Инкантатем','чары сняты');A.laugh=false;A.stunned=false;refresh();await sleep(1100);return;}
+  if(cast.id==='protego'){A.guard=cast.tier;msg('Щит поднят',TIERS[cast.tier].toLowerCase());refresh();await sleep(1100);return;}
+  // attack: defense phase
+  msg(`${sp.name}!`,TIERS[cast.tier].toLowerCase()); await sleep(700);
+  let def=null;
+  if(D.disarmed){log(`${D.name} без палочки не может защититься.`);}
+  else if(D.guard){def={id:'protego',score:0,tier:D.guard};D.guard=0;log(`Щит ${D.name} принимает удар.`);}
+  else if(D.ai){msg(`${D.name} защищается…`);await sleep(600);def=aiCast(D,aiPickDefense(cast.id));D.laugh=false;D.stunned=false;if(def.tier>0)log(castLabel(D,def));else log(`${D.name}: осечка в защите.`);}
+  else{
+    if(game.twoP) await overlay(`${D.name}, защищайтесь!`,`Летит ${sp.name}. После нажатия у вас 4 секунды.`,'Защищаюсь');
+    msg(`Летит ${sp.name}!`,'4 секунды на ответ');
+    def=await humanCast(D,4000); if(game.over)return;
+    D.laugh=false;D.stunned=false;
+    if(def.timeout){def=null;log(`${D.name} не успевает.`);}
+    else if(!def.id||def.tier===0){log(`${D.name}: осечка в защите.`);def=null;}
+    else if(SPELLS[def.id].cost>D.conc){log(`${D.name}: не хватило концентрации на защиту.`);def=null;}
+    else{D.conc-=SPELLS[def.id].cost;log(castLabel(D,def));}
+  }
+  refresh();
+  resolve(A,D,cast,def);
+  refresh(); await sleep(1500);
+}
+function resolve(A,D,cast,def){
+  const sp=SPELLS[cast.id]; const dmgFull=Math.round(sp.dmg*MULT[cast.tier]);
+  const hit=(mult,extra)=>{const d=Math.round(dmgFull*mult);D.hp=Math.max(0,D.hp-d);msg(`${sp.name} попадает`,`${d} урона${extra?' · '+extra:''}`);log(`${D.name} получает ${d}.${extra?' '+extra:''}`);};
+  if(cast.id==='expelliarmus'){
+    if(def&&def.id==='expelliarmus'){
+      if(def.score>cast.score){A.disarmed=true;msg('Встречный удар!',`${A.name} теряет палочку`);log(`Лучи сталкиваются — палочка ${A.name} летит в сторону.`);}
+      else{D.disarmed=true;hit(1,'палочка выбита');}
+      return;
+    }
+    D.disarmed=true; hit(1,'палочка выбита'); return;
+  }
+  if(def&&def.id==='protego'){
+    if(def.tier===1){hit(0.5,'слабый щит');}
+    else{msg('Щит держит',`${sp.name} рассеивается`);log(`Протего гасит ${sp.name}.`);}
+    return;
+  }
+  if(cast.id==='petrificus'&&def&&def.id==='finite'){msg('Чары отменены','Фините сработало');log(`Фините разрушает Петрификус.`);return;}
+  if(def&&def.id!=='protego'){log(`${SPELLS[def.id].name} не помогает против ${sp.name}.`);}
+  if(cast.id==='stupefy'){if(cast.tier===3){D.stunned=true;hit(1,'оглушён');}else hit(1);return;}
+  if(cast.id==='petrificus'){D.bound=true;hit(1,'связан');return;}
+  if(cast.id==='rictusempra'){D.laugh=true;hit(1,'хохочет');return;}
+}
+async function startGame(twoP){
+  game.over=false; game.twoP=twoP; game.round=1; logLines.length=0; $('#log').innerHTML='';
+  game.me=mkPlayer(twoP?'Игрок 1':'Вы',false);
+  game.opp=twoP?mkPlayer('Игрок 2',false):mkPlayer(DIFF[diff].name,true);
+  // for pass-and-play the bottom panel always shows whoever is acting? keep fixed: me=Игрок 1 bottom
+  go('duel'); pad.clear(); refresh(); msg('Дуэль начинается');
+  await sleep(800);
+  let cur=Math.random()<.5?0:1; const P=[game.me,game.opp];
+  if(!twoP)cur=0;
+  while(!game.over){
+    await playTurn(P[cur],P[1-cur]); if(game.over)return;
+    if(P[0].hp<=0||P[1].hp<=0){game.over=true;const win=P[0].hp>0?P[0]:P[1];const lose=P[0].hp>0?P[1]:P[0];
+      await sleep(600);go('result');
+      $('#res-title').textContent= twoP?`${win.name} побеждает`:(win===game.me?'Победа':'Поражение');
+      $('#res-sub').textContent= `${lose.name} выбывает на ${game.round}-м раунде. У победителя осталось ${win.hp} здоровья.`;
+      return;}
+    cur=1-cur; if(cur===0)game.round++;
+  }
+}
+$('#btn-ai').onclick=()=>startGame(false);
+$('#btn-2p').onclick=()=>startGame(true);
+$('#btn-book').onclick=()=>go('book');
+$('#btn-again').onclick=()=>startGame(game.twoP);
+</script>
+</body>
+</html>
