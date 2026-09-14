@@ -43,6 +43,7 @@ button:focus-visible{outline:2px solid var(--frost);outline-offset:2px}
 .seg button{flex:1;border:0;border-right:1px solid var(--gold-dim);text-align:center;padding:9px 4px;font-size:16px}
 .seg button:last-child{border-right:0}
 .seg button.sel{background:rgba(223,169,69,.22);color:var(--gold)}
+.stack button.small{padding:8px 12px;color:var(--parch-dim)}
 
 /* Spellbook */
 #book{overflow:hidden}
@@ -115,6 +116,7 @@ canvas#pad{width:100%;height:100%;display:block;border:1px solid rgba(223,169,69
     <button class="primary" id="btn-ai">Дуэль с противником</button>
     <button id="btn-2p">Два игрока на одном телефоне</button>
     <button id="btn-book">Учебник заклинаний</button>
+    <button data-sound class="small"></button>
   </div>
   <p class="muted small">Сначала загляните в учебник: в дуэли подсказок нет. Что нарисуете — то и вылетит из палочки.</p>
 </section>
@@ -135,7 +137,7 @@ canvas#pad{width:100%;height:100%;display:block;border:1px solid rgba(223,169,69
 </section>
 
 <section id="duel">
-  <div class="topbar"><span class="muted small" id="roundlbl">Раунд 1</span><button data-go="menu" id="btn-quit">Сдаться</button></div>
+  <div class="topbar"><span class="muted small" id="roundlbl">Раунд 1</span><span class="row"><button data-sound></button><button data-go="menu" id="btn-quit">Сдаться</button></span></div>
   <div class="fighter" id="f-opp">
     <div class="row"><span class="nm"></span><span class="hpn">100</span></div>
     <div class="bar"><i style="width:100%"></i></div>
@@ -259,6 +261,63 @@ let diff=0;
 $('#diffseg').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;diff=+b.dataset.d;
   $('#diffseg').querySelectorAll('button').forEach(x=>x.classList.toggle('sel',x===b));});
 
+// ---- sound (WebAudio synthesis, no files)
+const SFX=(()=>{
+  const AC=window.AudioContext||window.webkitAudioContext;
+  let ctx=null,master=null,noiseBuf=null,on=true;
+  try{on=localStorage.getItem('wd_sound')!=='0';}catch(e){}
+  function ensure(){
+    if(!AC)return null;
+    if(!ctx){ctx=new AC();master=ctx.createGain();master.gain.value=.9;master.connect(ctx.destination);
+      noiseBuf=ctx.createBuffer(1,ctx.sampleRate,ctx.sampleRate);const d=noiseBuf.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;}
+    if(ctx.state==='suspended')ctx.resume().catch(()=>{});
+    return ctx;
+  }
+  // iOS keeps the context suspended until a real touch, and may suspend it again after backgrounding
+  ['pointerdown','touchend','keydown'].forEach(ev=>document.addEventListener(ev,()=>{if(on)ensure();},{passive:true}));
+  function env(g,t,vol,a,dur){g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(vol,t+a);g.gain.exponentialRampToValueAtTime(.0001,t+dur);}
+  function tone(c,{t,type='sine',f0,f1=f0,dur,vol,a=.01}){const o=c.createOscillator(),g=c.createGain();o.type=type;o.frequency.setValueAtTime(f0,t);o.frequency.exponentialRampToValueAtTime(Math.max(1,f1),t+dur);env(g,t,vol,a,dur);o.connect(g).connect(master);o.start(t);o.stop(t+dur+.05);}
+  function noise(c,{t,f0,f1=f0,q=1,dur,vol,a=.01,type='bandpass'}){const s=c.createBufferSource(),f=c.createBiquadFilter(),g=c.createGain();s.buffer=noiseBuf;s.loop=true;f.type=type;f.Q.value=q;f.frequency.setValueAtTime(f0,t);f.frequency.exponentialRampToValueAtTime(Math.max(1,f1),t+dur);env(g,t,vol,a,dur);s.connect(f).connect(g).connect(master);s.start(t);s.stop(t+dur+.05);}
+  const CAST={
+    expelliarmus:(c,t,k)=>{noise(c,{t,f0:400,f1:2400,q:1.2,dur:.35,vol:.5*k});tone(c,{t:t+.18,type:'sawtooth',f0:300,f1:900,dur:.3,vol:.2*k});noise(c,{t:t+.3,f0:3000,f1:1500,q:.7,dur:.12,vol:.6*k});},
+    stupefy:(c,t,k)=>{tone(c,{t,type:'square',f0:900,f1:180,dur:.28,vol:.18*k});noise(c,{t,f0:2500,f1:600,q:2,dur:.3,vol:.6*k});noise(c,{t:t+.05,f0:6000,f1:3000,q:.5,dur:.08,vol:.4*k});},
+    petrificus:(c,t,k)=>{tone(c,{t,type:'triangle',f0:200,f1:70,dur:.9,vol:.3*k,a:.05});tone(c,{t,f0:100,f1:55,dur:.9,vol:.3*k,a:.05});for(let i=0;i<4;i++)noise(c,{t:t+.15+i*.16,f0:250,f1:120,q:3,dur:.1,vol:.35*k});},
+    rictusempra:(c,t,k)=>{for(let i=0;i<6;i++)tone(c,{t:t+i*.07,f0:500+i*90,f1:650+i*90,dur:.12,vol:.2*k});noise(c,{t,f0:1500,f1:4000,q:.8,dur:.45,vol:.15*k});},
+    protego:(c,t,k)=>{tone(c,{t,f0:330,f1:340,dur:1.1,vol:.28*k,a:.25});tone(c,{t,f0:660,f1:672,dur:1.1,vol:.12*k,a:.3});noise(c,{t,f0:800,f1:1600,q:1.5,dur:1,vol:.12*k,a:.3});},
+    finite:(c,t,k)=>{tone(c,{t,f0:880,f1:440,dur:.6,vol:.25*k});tone(c,{t:t+.02,f0:1320,f1:660,dur:.5,vol:.1*k});},
+    accio:(c,t,k)=>{noise(c,{t,f0:300,f1:3000,q:1,dur:.4,vol:.4*k});tone(c,{t:t+.38,f0:180,f1:120,dur:.12,vol:.35*k});},
+  };
+  const TIER_K=[0,.6,.85,1];
+  function play(fn){if(!on)return;const c=ensure();if(!c)return;fn(c,c.currentTime+.01);}
+  return {
+    get on(){return on;},
+    toggle(){on=!on;try{localStorage.setItem('wd_sound',on?'1':'0');}catch(e){}if(on)ensure();return on;},
+    cast(id,tier){play((c,t)=>{CAST[id](c,t,TIER_K[tier]);if(tier===3)tone(c,{t,f0:2400,f1:3200,dur:.5,vol:.07});});},
+    misfire(){play((c,t)=>{for(let i=0;i<3;i++)noise(c,{t:t+i*.09,f0:900,f1:300,q:1,dur:.06,vol:.3});tone(c,{t,type:'triangle',f0:120,f1:80,dur:.25,vol:.12});});},
+    hit(d){play((c,t)=>{const k=Math.min(1,.4+d/40);tone(c,{t,f0:140,f1:40,dur:.35,vol:.6*k});noise(c,{t,type:'lowpass',f0:400,f1:80,dur:.15,vol:.5*k});});},
+    shield(){play((c,t)=>{tone(c,{t,type:'triangle',f0:660,f1:655,dur:.7,vol:.22});tone(c,{t,type:'triangle',f0:988,f1:980,dur:.6,vol:.12});noise(c,{t,f0:4000,f1:2000,q:1,dur:.15,vol:.3});});},
+    dispel(){play((c,t)=>CAST.finite(c,t,1));},
+    clash(){play((c,t)=>{noise(c,{t,f0:600,f1:200,q:4,dur:.9,vol:.5});tone(c,{t,type:'sawtooth',f0:220,f1:110,dur:.9,vol:.18});noise(c,{t,f0:3000,f1:1200,q:.7,dur:.2,vol:.5});});},
+    tick(){play((c,t)=>tone(c,{t,type:'square',f0:1200,dur:.04,vol:.07}));},
+    jingle(up){play((c,t)=>{const n=up?[523,659,784,1046]:[392,330,262,196];n.forEach((f,i)=>tone(c,{t:t+i*.13,type:up?'sine':'triangle',f0:f,dur:.5,vol:.2}));});},
+    start(){play((c,t)=>{tone(c,{t,f0:440,dur:.4,vol:.15});tone(c,{t:t+.15,f0:660,dur:.5,vol:.15});});},
+    stroke(){
+      if(!on)return null;const c=ensure();if(!c)return null;
+      const s=c.createBufferSource(),f=c.createBiquadFilter(),g=c.createGain();
+      s.buffer=noiseBuf;s.loop=true;f.type='bandpass';f.Q.value=2;f.frequency.value=800;g.gain.value=0;
+      s.connect(f).connect(g).connect(master);s.start();
+      return {
+        move(v){const n=c.currentTime;g.gain.setTargetAtTime(Math.min(.3,v*.012),n,.03);f.frequency.setTargetAtTime(500+Math.min(3000,v*70),n,.03);},
+        end(){const n=c.currentTime;g.gain.setTargetAtTime(0,n,.05);s.stop(n+.4);}
+      };
+    }
+  };
+})();
+function castSfx(c,ok){if(ok&&c.tier>0)SFX.cast(c.id,c.tier);else SFX.misfire();}
+function syncSound(){document.querySelectorAll('[data-sound]').forEach(b=>b.textContent=SFX.on?'Звук: вкл':'Звук: выкл');}
+document.querySelectorAll('[data-sound]').forEach(b=>b.addEventListener('click',()=>{SFX.toggle();syncSound();}));
+syncSound();
+
 // ---- spellbook
 function gestureSVG(id){
   const pts=SHAPES[id]().map(p=>`${(p.x*100).toFixed(1)},${(p.y*100).toFixed(1)}`).join(' ');
@@ -279,7 +338,8 @@ function gestureSVG(id){
 // ---- drawing pad
 function makePad(wrap){
   const c=document.createElement('canvas'); c.id='pad'; wrap.prepend(c);
-  const ctx=c.getContext('2d'); let pts=[],drawing=false,locked=true,resolver=null,fx=null;
+  const ctx=c.getContext('2d'); let pts=[],drawing=false,locked=true,resolver=null,fx=null,sh=null;
+  const hush=()=>{if(sh){sh.end();sh=null;}};
   function fit(){const r=wrap.getBoundingClientRect();const d=window.devicePixelRatio||1;c.width=r.width*d;c.height=r.height*d;ctx.setTransform(d,0,0,d,0,0);}
   new ResizeObserver(fit).observe(wrap); fit();
   function pos(e){const r=c.getBoundingClientRect();return {x:e.clientX-r.left,y:e.clientY-r.top};}
@@ -292,13 +352,13 @@ function makePad(wrap){
     ctx.beginPath();ctx.moveTo(pts[0].x,pts[0].y);for(let i=1;i<pts.length;i++)ctx.lineTo(pts[i].x,pts[i].y);ctx.stroke();
     ctx.shadowBlur=0;ctx.globalAlpha=1;
   }
-  c.addEventListener('pointerdown',e=>{if(locked)return;drawing=true;fx=null;pts=[pos(e)];c.setPointerCapture(e.pointerId);render();});
-  c.addEventListener('pointermove',e=>{if(!drawing)return;pts.push(pos(e));render();});
-  const end=e=>{if(!drawing)return;drawing=false;const r=resolver;resolver=null;locked=true;if(r)r(pts.slice());};
+  c.addEventListener('pointerdown',e=>{if(locked)return;drawing=true;fx=null;pts=[pos(e)];c.setPointerCapture(e.pointerId);sh=SFX.stroke();render();});
+  c.addEventListener('pointermove',e=>{if(!drawing)return;const p=pos(e);if(sh)sh.move(dist(pts[pts.length-1],p));pts.push(p);render();});
+  const end=e=>{if(!drawing)return;drawing=false;hush();const r=resolver;resolver=null;locked=true;if(r)r(pts.slice());};
   c.addEventListener('pointerup',end);c.addEventListener('pointercancel',end);
   return {
     await(){locked=false;wrap.classList.remove('locked');return new Promise(res=>{resolver=res;});},
-    cancel(){locked=true;resolver=null;drawing=false;},
+    cancel(){locked=true;resolver=null;drawing=false;hush();},
     flash(color,ok){fx={color:ok?color:'#777',alpha:1};let t=0;const id=setInterval(()=>{t+=1;fx.alpha=Math.max(0,1-t/30);if(ok&&t<6)fx.alpha=1;render();if(t>=30){clearInterval(id);pts=[];fx=null;render();}},33);},
     clear(){pts=[];fx=null;render();}
   };
@@ -351,16 +411,19 @@ async function humanCast(p,timeoutMs){
   if(timeoutMs){
     tEl.classList.add('on'); let left=timeoutMs/1000; tEl.textContent=left.toFixed(1);
     const t0=performance.now();
-    timer=setInterval(()=>{left=Math.max(0,(timeoutMs-(performance.now()-t0))/1000);tEl.textContent=left.toFixed(1);},100);
+    let lastSec=Math.ceil(left);
+    timer=setInterval(()=>{left=Math.max(0,(timeoutMs-(performance.now()-t0))/1000);tEl.textContent=left.toFixed(1);
+      const s=Math.ceil(left);if(s<lastSec){lastSec=s;if(s>0&&s<=3)SFX.tick();}},100);
     result=await Promise.race([gesture,sleep(timeoutMs).then(()=>null)]);
     clearInterval(timer); tEl.classList.remove('on');
-    if(result===null){pad.cancel();return {timeout:true};}
+    if(result===null){pad.cancel();SFX.misfire();return {timeout:true};}
   } else result=await gesture;
   const r=recognize(result,TEMPLATES);
-  if(!r){pad.flash('#777',false);return {id:null,score:0,tier:0};}
+  if(!r){pad.flash('#777',false);SFX.misfire();return {id:null,score:0,tier:0};}
   let score=r.score; if(p.laugh)score-=0.08; if(p.stunned)score-=0.15;
   const tier=tierOf(score);
   pad.flash(SPELLS[r.id].color,tier>0);
+  castSfx({id:r.id,tier},SPELLS[r.id].cost<=p.conc&&(!p.disarmed||r.id==='accio'));
   return {id:r.id,score,tier};
 }
 function aiCast(p,id){let s=clamp(gauss(DIFF[diff].mean,DIFF[diff].sd),0,1);if(p.laugh)s-=0.08;if(p.stunned)s-=0.15;return {id,score:s,tier:tierOf(s)};}
@@ -384,7 +447,7 @@ async function playTurn(A,D){
   A.conc=Math.min(5,A.conc+1); refresh();
   // attacker casts
   let cast;
-  if(A.ai){msg(`${aName} колдует…`);await sleep(900);cast=aiCast(A,aiPickAttack(A));}
+  if(A.ai){msg(`${aName} колдует…`);await sleep(900);cast=aiCast(A,aiPickAttack(A));castSfx(cast,true);}
   else{
     if(game.twoP) await overlay(`${aName}, ваш ход`,A.disarmed?'Палочка выбита. Только Акцио вернёт её.':'Нарисуйте любое заклинание по памяти.','К палочке');
     msg('Ваш взмах',A.disarmed?'без палочки работает только Акцио':'что нарисуете — то и вылетит');
@@ -407,7 +470,7 @@ async function playTurn(A,D){
   let def=null;
   if(D.disarmed){log(`${D.name} без палочки не может защититься.`);}
   else if(D.guard){def={id:'protego',score:0,tier:D.guard};D.guard=0;log(`Щит ${D.name} принимает удар.`);}
-  else if(D.ai){msg(`${D.name} защищается…`);await sleep(600);def=aiCast(D,aiPickDefense(cast.id));D.laugh=false;D.stunned=false;if(def.tier>0)log(castLabel(D,def));else log(`${D.name}: осечка в защите.`);}
+  else if(D.ai){msg(`${D.name} защищается…`);await sleep(600);def=aiCast(D,aiPickDefense(cast.id));castSfx(def,true);D.laugh=false;D.stunned=false;if(def.tier>0)log(castLabel(D,def));else log(`${D.name}: осечка в защите.`);}
   else{
     if(game.twoP) await overlay(`${D.name}, защищайтесь!`,`Летит ${sp.name}. После нажатия у вас 4 секунды.`,'Защищаюсь');
     msg(`Летит ${sp.name}!`,'4 секунды на ответ');
@@ -424,9 +487,10 @@ async function playTurn(A,D){
 }
 function resolve(A,D,cast,def){
   const sp=SPELLS[cast.id]; const dmgFull=Math.round(sp.dmg*MULT[cast.tier]);
-  const hit=(mult,extra)=>{const d=Math.round(dmgFull*mult);D.hp=Math.max(0,D.hp-d);msg(`${sp.name} попадает`,`${d} урона${extra?' · '+extra:''}`);log(`${D.name} получает ${d}.${extra?' '+extra:''}`);};
+  const hit=(mult,extra)=>{const d=Math.round(dmgFull*mult);D.hp=Math.max(0,D.hp-d);SFX.hit(d);msg(`${sp.name} попадает`,`${d} урона${extra?' · '+extra:''}`);log(`${D.name} получает ${d}.${extra?' '+extra:''}`);};
   if(cast.id==='expelliarmus'){
     if(def&&def.id==='expelliarmus'){
+      SFX.clash();
       if(def.score>cast.score){A.disarmed=true;msg('Встречный удар!',`${A.name} теряет палочку`);log(`Лучи сталкиваются — палочка ${A.name} летит в сторону.`);}
       else{D.disarmed=true;hit(1,'палочка выбита');}
       return;
@@ -435,10 +499,10 @@ function resolve(A,D,cast,def){
   }
   if(def&&def.id==='protego'){
     if(def.tier===1){hit(0.5,'слабый щит');}
-    else{msg('Щит держит',`${sp.name} рассеивается`);log(`Протего гасит ${sp.name}.`);}
+    else{SFX.shield();msg('Щит держит',`${sp.name} рассеивается`);log(`Протего гасит ${sp.name}.`);}
     return;
   }
-  if(cast.id==='petrificus'&&def&&def.id==='finite'){msg('Чары отменены','Фините сработало');log(`Фините разрушает Петрификус.`);return;}
+  if(cast.id==='petrificus'&&def&&def.id==='finite'){SFX.dispel();msg('Чары отменены','Фините сработало');log(`Фините разрушает Петрификус.`);return;}
   if(def&&def.id!=='protego'){log(`${SPELLS[def.id].name} не помогает против ${sp.name}.`);}
   if(cast.id==='stupefy'){if(cast.tier===3){D.stunned=true;hit(1,'оглушён');}else hit(1);return;}
   if(cast.id==='petrificus'){D.bound=true;hit(1,'связан');return;}
@@ -449,14 +513,14 @@ async function startGame(twoP){
   game.me=mkPlayer(twoP?'Игрок 1':'Вы',false);
   game.opp=twoP?mkPlayer('Игрок 2',false):mkPlayer(DIFF[diff].name,true);
   // for pass-and-play the bottom panel always shows whoever is acting? keep fixed: me=Игрок 1 bottom
-  go('duel'); pad.clear(); refresh(); msg('Дуэль начинается');
+  go('duel'); pad.clear(); refresh(); msg('Дуэль начинается'); SFX.start();
   await sleep(800);
   let cur=Math.random()<.5?0:1; const P=[game.me,game.opp];
   if(!twoP)cur=0;
   while(!game.over){
     await playTurn(P[cur],P[1-cur]); if(game.over)return;
     if(P[0].hp<=0||P[1].hp<=0){game.over=true;const win=P[0].hp>0?P[0]:P[1];const lose=P[0].hp>0?P[1]:P[0];
-      await sleep(600);go('result');
+      SFX.jingle(twoP||win===game.me);await sleep(600);go('result');
       $('#res-title').textContent= twoP?`${win.name} побеждает`:(win===game.me?'Победа':'Поражение');
       $('#res-sub').textContent= `${lose.name} выбывает на ${game.round}-м раунде. У победителя осталось ${win.hp} здоровья.`;
       return;}
